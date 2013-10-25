@@ -17,12 +17,31 @@
 import csv
 import glob
 import os
+import re
 
 def get_index(value, array):
   length = len(array)
   for i in range(0,length):
     if array[i]==value:
       return i
+
+def get_valid_ip(last_access_ip):
+  # clean entries in last_access_ip and return only good ip addresses
+  valid_ip_address = None
+  if last_access_ip.find(','):
+    ip_list = last_access_ip.split(',')
+    for ip in ip_list:
+      ip = ip.strip()
+      ip_re = re.search(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+',ip)
+      if ip_re:
+        valid_ip_address = ip
+        break
+  else:
+    ip_re = re.search(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+',last_access_ip)
+    if ip_re:
+      valid_ip_address = last_access_ip
+      
+  return valid_ip_address
 
 def address_to_int(address):
   # calculate the integer value of an IPv4 address
@@ -44,45 +63,6 @@ print ''
 
 input_file = 'users.csv'        # <-- Specify input .csv file here
 output_file = 'users_ip.csv'    # <-- Specify output .csv filename here
-
-# Sort list by IP address (if "tmpfile.csv" already generated, then skip this step)
-tmpfile = glob.glob('tmpfile.csv')
-if tmpfile:
-  tmpfile = tmpfile[0]
-else:
-  users = []
-  print 'Sorting by last_access_ip...'
-  file_name = input_file
-  print 'Reading file: '+file_name
-  with open(file_name,'rU') as IN:
-    reader = csv.reader(IN)
-    users_header = reader.next()
-    last_access_ip_index = get_index('last_access_ip',users_header)
-    last_access_ip_num = 0
-    for user_num, row in enumerate(reader):
-      last_access_ip = row[last_access_ip_index]
-      last_access_ip = last_access_ip.replace('unknown, ','')
-      last_access_ip = last_access_ip.replace(', unknown','')
-      last_access_ip = last_access_ip.replace('unknown','')
-      if last_access_ip.find(',') != -1:
-        last_access_ip = last_access_ip[0:last_access_ip.find(',')]
-      if last_access_ip != '':
-        users.append(row + [address_to_int(last_access_ip)])
-        last_access_ip_num += 1
-      else:
-        users.append(row + [None])
-  users.sort(key=lambda x: x[-1])
-
-  tmpfile = 'tmpfile.csv'
-  with open(tmpfile,'wb') as OUT:
-    writer = csv.writer(OUT,delimiter=',')
-    writer.writerow(users_header)
-    for row in users:
-      writer.writerow(row[:-1])
-  del users
-
-  print 'Done. ('+str(user_num+1)+' rows, '+str(last_access_ip_num)+' IP addresses)'
-  print ''
 
 # Fetch IP address mappings
 print 'Loading MaxMind GeoIP databases...'
@@ -120,6 +100,40 @@ with open(file_name,'rU') as IN:
 print '   Done. ('+str(row_num+1)+' rows)'
 print ''
 
+# Sort list by IP address (if "tmpfile.csv" already generated, then skip this step)
+tmpfile = glob.glob('tmpfile.csv')
+if tmpfile:
+  tmpfile = tmpfile[0]
+else:
+  users = []
+  print 'Sorting by last_access_ip...'
+  file_name = input_file
+  print 'Reading file: '+file_name
+  with open(file_name,'rU') as IN:
+    reader = csv.reader(IN)
+    users_header = reader.next()
+    last_access_ip_index = get_index('last_access_ip',users_header)
+    last_access_ip_num = 0
+    for user_num, row in enumerate(reader):
+      last_access_ip = get_valid_ip(row[last_access_ip_index])
+      if last_access_ip is not None:
+        users.append(row + [address_to_int(last_access_ip)])
+        last_access_ip_num += 1
+      else:
+        users.append(row + [None])
+  users.sort(key=lambda x: x[-1])
+
+  tmpfile = 'tmpfile.csv'
+  with open(tmpfile,'wb') as OUT:
+    writer = csv.writer(OUT,delimiter=',')
+    writer.writerow(users_header)
+    for row in users:
+      writer.writerow(row[:-1])
+  del users
+
+  print 'Done. ('+str(user_num+1)+' rows, '+str(last_access_ip_num)+' IP addresses)'
+  print ''
+
 # Geolocate users on IP address
 print 'Fetching IP address geolocation matches...'
 file_name = output_file
@@ -135,15 +149,10 @@ with open(tmpfile,'rU') as IN:
     GeoIPCountryWhois_last = 0
     GeoLiteCityBlocks_last = 0
     for row_num, row in enumerate(reader):
-      last_access_ip = row[last_access_ip_index]
-      last_access_ip = last_access_ip.replace('unknown, ','')
-      last_access_ip = last_access_ip.replace(', unknown','')
-      last_access_ip = last_access_ip.replace('unknown','')
-      if last_access_ip.find(',') != -1:
-        last_access_ip = last_access_ip[0:last_access_ip.find(',')]
+      last_access_ip = get_valid_ip(row[last_access_ip_index])
       countryName = None
       locId = None
-      if last_access_ip != '':
+      if last_access_ip is not None:
         last_access_ip = address_to_int(last_access_ip)
         for IpNum in GeoIPCountryWhois[GeoIPCountryWhois_last:]:
           if last_access_ip >= int(IpNum[2]) and last_access_ip <= int(IpNum[3]):
